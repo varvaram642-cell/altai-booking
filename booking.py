@@ -1,10 +1,47 @@
 from datetime import datetime, timedelta
+import sqlite3
 
 class AltaiBookingSystem:
     def __init__(self, prices_data):
         self.prices = prices_data
+        
+        # Подключаемся к базе данных
+        self.conn = sqlite3.connect('altai_resort.db')
+        self.cursor = self.conn.cursor()
+        
+        # Создаём таблицу для броней
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bookings (
+                room_type TEXT,
+                start_date TEXT,
+                end_date TEXT
+            )
+        ''')
+        self.conn.commit()
 
-    def calculate_total_cost(self, start_date, end_date, room_type):
+    def __del__(self):
+        self.conn.close()
+
+    def is_available(self, start_date, end_date, room_type):
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+        
+        self.cursor.execute("""
+            SELECT COUNT(*) FROM bookings
+            WHERE room_type = ?
+            AND start_date < ?
+            AND end_date > ?
+        """, (room_type, end_str, start_str))
+        
+        count = self.cursor.fetchone()[0]
+        return count == 0
+
+    def book_room(self, start_date, end_date, room_type):
+        # Проверка доступности
+        if not self.is_available(start_date, end_date, room_type):
+            return "Номер занят на эти даты"
+
+        # Проверка существования категории
         if room_type not in self.prices:
             return None
 
@@ -26,6 +63,16 @@ class AltaiBookingSystem:
             else:
                 total_cost = total_cost + weekday_price
             current_day = current_day + timedelta(days=1)
+
+        # Сохраняем бронь в базу данных
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+        
+        self.cursor.execute(
+            "INSERT INTO bookings (room_type, start_date, end_date) VALUES (?, ?, ?)",
+            (room_type, start_str, end_str)
+        )
+        self.conn.commit()
 
         return total_cost
 
@@ -50,9 +97,11 @@ try:
     print("Доступные категории: Эко-палатка, Стандарт, Джуниор сюит, Люкс, Апартаменты, Апартаменты семейные")
     room_type = input("Введите категорию номера: ")
 
-    total = booking_system.calculate_total_cost(date_start, date_end, room_type)
+    total = booking_system.book_room(date_start, date_end, room_type)
 
-    if total is None:
+    if isinstance(total, str):
+        print(total)
+    elif total is None:
         print("Ошибка: такой категории нет. Выберите из списка.")
     elif total == -1:
         print("Ошибка: дата выезда должна быть позже даты заезда.")
